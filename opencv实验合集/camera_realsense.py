@@ -366,12 +366,12 @@ def run_gesture_recognition():
     print("\n--- 正在运行实验2.4: 手势识别 (手指计数) ---")
     cam = RealsenseCamera()
     if not cam.start(): return
-    print("手势识别已启动。将手放在离摄像头约0.1-0.5米处。按 'q' 键退出。")
+    print("手势识别已启动。将手放在离摄像头约0.01-0.27米处。按 'q' 键退出。")
     try:
         while True:
             _, _, depth_image, color_image = cam.get_frames()
             if color_image is None: continue
-            depth_mask = cv2.inRange(depth_image, 100, 500)
+            depth_mask = cv2.inRange(depth_image, 10, 270)
             kernel = np.ones((5, 5), np.uint8)
             depth_mask = cv2.morphologyEx(depth_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
             depth_mask = cv2.GaussianBlur(depth_mask, (7, 7), 0)
@@ -432,33 +432,95 @@ def run_hsv_tool():
                 break
     finally: cam.stop()
 
+import numpy as np
+import cv2
+# 假设 RealsenseCamera 类在其他地方定义或导入
+# from your_camera_module import RealsenseCamera 
+
 def run_color_tracking():
+    """
+    运行颜色跟踪。
+    
+    参数:
+    color_lower (np.array): 颜色的HSV下限值 [H, S, V]
+    color_upper (np.array): 颜色的HSV上限值 [H, S, V]
+    """
     print("\n--- 正在运行实验3.2: 颜色跟踪 ---")
-    green_lower = np.array([35, 80, 80]); green_upper = np.array([85, 255, 255])
+        # --- 在这里自定义你要追踪的颜色 ---
+    # 你需要在这里设置HSV的下限和上限
+    
+    # 示例 1: 追踪绿色 (你的原始值)
+    color_lower = np.array([35, 80, 80])
+    color_upper = np.array([85, 255, 255])
+    
+    # 示例 2: 追踪蓝色 (取消下面两行的注释来使用)
+    #color_lower = np.array([100, 80, 80])
+    #color_upper = np.array([130, 255, 255])
+    
+    # 示例 3: 追踪红色 (红色比较特殊，H值在0附近，可能需要两个范围)
+    # 这是一个简单的红色范围
+    # color_lower = np.array([170, 80, 80])
+    # color_upper = np.array([180, 255, 255])
+    print(f"追踪的HSV范围: Lower={color_lower}, Upper={color_upper}")
+
     cam = RealsenseCamera()
-    if not cam.start(): return
-    print("正在跟踪绿色物体。按 'q' 键退出。")
+    if not cam.start(): 
+        print("相机启动失败")
+        return
+
+    print("正在跟踪指定颜色的物体。按 'q' 键退出。")
     try:
         while True:
             _, _, _, color_image = cam.get_frames()
-            if color_image is None: continue
+            if color_image is None: 
+                continue
+
             blurred = cv2.GaussianBlur(color_image, (11, 11), 0)
             hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-            mask = cv2.inRange(hsv, green_lower, green_upper)
-            mask = cv2.erode(mask, None, iterations=2); mask = cv2.dilate(mask, None, iterations=2)
+            
+            # 1. 使用传入的参数来创建掩码
+            mask = cv2.inRange(hsv, color_lower, color_upper)
+            
+            # 2. 形态学操作
+            mask = cv2.erode(mask, None, iterations=2)
+            mask = cv2.dilate(mask, None, iterations=2)
+            
+            # 3. 查找轮廓
             contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            center = None # 初始化center
+            
             if len(contours) > 0:
+                # 找到最大的轮廓
                 c = max(contours, key=cv2.contourArea)
+                # 计算最小外接圆
                 ((x, y), radius) = cv2.minEnclosingCircle(c)
+                # 计算轮廓的矩
                 M = cv2.moments(c)
+                
+                # 确保m00不为0以避免除零错误
                 if M["m00"] > 0:
                     center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-                    if radius > 10:
-                        cv2.circle(color_image, (int(x), int(y)), int(radius), (0, 255, 255), 2)
+                
+                # 仅在半径大于某个值时才绘制（避免噪点）
+                if radius > 10:
+                    # 绘制外接圆
+                    cv2.circle(color_image, (int(x), int(y)), int(radius), (0, 255, 255), 2)
+                    # 绘制中心点
+                    if center:
                         cv2.circle(color_image, center, 5, (0, 0, 255), -1)
+                        
             cv2.imshow("Color Tracking", color_image)
-            if cv2.waitKey(1) & 0xFF == ord('q'): break
-    finally: cam.stop()
+            # cv2.imshow("Mask", mask) # 你也可以取消这行注释来查看掩码
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'): 
+                break
+    finally:
+        print("停止跟踪...")
+        cam.stop()
+
+    
+
 
 def run_edge_detection():
     print("\n--- 正在运行实验4.1: Canny边缘检测 ---")
