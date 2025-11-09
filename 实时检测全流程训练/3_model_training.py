@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-综合项目第三步：训练YOLOv8水果检测模型
+综合项目第三步：训练YOLOv8水果检测模型 (自动类别检测版)
 
 功能:
+- [新] 自动检测并读取 'fruit_dataset/labels/classes.txt' 文件来获取类别列表。
 - 自动创建YOLOv8训练所需的 `data.yaml` 配置文件。
 - 加载预训练的YOLOv8n模型。
-- 使用您在上一步中准备好的数据集进行训练。
-- 训练完成后，最优的模型权重将保存在 'runs/detect/trainX/weights/best.pt'。
+- 使用您自定义的数据集进行训练。
 
 使用方法:
-1. 确保您已经完成了数据收集和标注，并已将数据集划分为 train/val 两个部分。
-2. 确保 `fruit_dataset` 文件夹与此脚本位于同一目录下。
-3. 根据您自己的类别，修改下面的 `CLASS_NAMES` 列表。
-4. 运行此脚本开始训练。
+1. 确保已完成数据收集和标注，并已将数据集划分为 train/val 两个部分。
+2. 确保 `labelImg` 生成的 `classes.txt` 文件位于 `fruit_dataset/labels/` 文件夹中。
+3. 运行此脚本开始训练。
 """
 import os
 import yaml
@@ -22,26 +21,54 @@ from ultralytics import YOLO
 
 # 数据集根目录
 DATASET_DIR = 'fruit_dataset'
-# 定义您的类别名称，顺序必须和标注时一致！
-# 例如，如果标注时 apple 是第0类，banana 是第1类
-CLASS_NAMES = ['li', 'jv'] 
 # 训练轮次
 EPOCHS = 30
-# 预训练模型 (yolov8n.pt 是最小最快的模型, yolov8s.pt/yolov8m.pt 精度更高但更慢)
+# 预训练模型
 MODEL_NAME = 'yolov8n.pt' 
 
-def create_yaml_file():
+def get_class_names():
+    """
+    自动从 'fruit_dataset/labels/classes.txt' 文件读取类别名称。
+    """
+    classes_file_path = 'fruit_dataset/labels/classes.txt'
+    
+    if os.path.exists(classes_file_path):
+        print(f"检测到类别文件: {classes_file_path}，正在自动读取...")
+        try:
+            with open(classes_file_path, 'r', encoding='utf-8') as f:
+                # 读取所有行，并去除每行末尾的换行符
+                class_names = [line.strip() for line in f if line.strip()]
+            
+            if class_names:
+                print(f"成功读取到 {len(class_names)} 个类别: {class_names}")
+                return class_names
+            else:
+                print(f"警告: '{classes_file_path}' 文件为空。")
+        except Exception as e:
+            print(f"读取类别文件时出错: {e}")
+    
+    # --- 安全回退 ---
+    # 如果文件不存在或读取失败，使用手动定义的列表
+    print("未找到或无法读取 'classes.txt'。将使用脚本中定义的手动列表。")
+    print("请确保 'CLASS_NAMES' 变量在脚本中已正确设置。")
+    # [备用方案] 在此处定义您的手动类别列表
+    fallback_class_names = ['li', 'jv'] # 例如: ['apple', 'banana']
+    return fallback_class_names
+
+def create_yaml_file(class_names):
     """自动创建 data.yaml 配置文件"""
     
+    if not class_names:
+        print("错误: 类别列表为空，无法创建 data.yaml。")
+        return False
+        
     # 检查数据集路径是否存在
     if not os.path.exists(DATASET_DIR):
         print(f"错误: 数据集文件夹 '{DATASET_DIR}' 不存在。")
-        print("请确保已创建该文件夹，并完成了数据集的准备。")
         return False
         
     print("正在创建 data.yaml 配置文件...")
     
-    # 获取数据集的绝对路径
     try:
         dataset_abs_path = os.path.abspath(DATASET_DIR)
     except Exception as e:
@@ -52,15 +79,15 @@ def create_yaml_file():
     yaml_content = {
         'train': os.path.join(dataset_abs_path, 'images/train/'),
         'val': os.path.join(dataset_abs_path, 'images/val/'),
-        'nc': len(CLASS_NAMES),
-        'names': CLASS_NAMES
+        'nc': len(class_names),
+        'names': class_names
     }
 
     # 写入文件
     yaml_file_path = os.path.join(DATASET_DIR, 'data.yaml')
     try:
-        with open(yaml_file_path, 'w') as f:
-            yaml.dump(yaml_content, f, default_flow_style=False, sort_keys=False)
+        with open(yaml_file_path, 'w', encoding='utf-8') as f:
+            yaml.dump(yaml_content, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         print(f"data.yaml 已成功创建在: {yaml_file_path}")
         return yaml_file_path
     except Exception as e:
@@ -68,35 +95,33 @@ def create_yaml_file():
         return False
 
 def main():
-    # --- 2. 创建配置文件 ---
-    yaml_path = create_yaml_file()
+    # --- 2. 自动获取类别并创建配置文件 ---
+    class_names_list = get_class_names()
+    yaml_path = create_yaml_file(class_names_list)
+    
     if not yaml_path:
+        print("配置文件创建失败，训练中止。")
         return
         
     # --- 3. 加载预训练模型 ---
     print(f"\n正在加载预训练模型: {MODEL_NAME}")
-    # 加载一个预训练的YOLOv8模型
     model = YOLO(MODEL_NAME)
 
     # --- 4. 开始训练 ---
     print("="*50)
     print("即将开始模型训练...")
-    print(f"  - 数据集配置: {yaml_path}")
-    print(f"  - 训练轮次 (Epochs): {EPOCHS}")
-    print(f"  - 图像尺寸 (Image Size): 640")
+    print(f"  - 数据集配置: {yaml_path}")
+    print(f"  - 训练轮次 (Epochs): {EPOCHS}")
+    print(f"  - 图像尺寸 (Image Size): 640")
     print("="*50 + "\n")
 
     try:
         # 使用数据集训练模型
-        # data: 指向你的 data.yaml 文件
-        # epochs: 训练轮次
-        # imgsz: 输入图像的尺寸
-        results = model.train(data=yaml_path, epochs=EPOCHS, imgsz=640)
+        results = model.train(data=yaml_path, epochs=EPOCHS, imgsz=640, device=0) # device=0 使用GPU
 
         print("\n" + "*"*50)
         print("训练完成！")
-        print("最优模型已保存在最新的 'runs/detect/trainX/weights/best.pt' 文件中。")
-        print("请将该 'best.pt' 文件复制到与第4步脚本相同的目录下，准备进行实时检测。")
+        print(f"最优模型已保存在最新的 '{results.save_dir}/weights/best.pt' 文件中。")
         print("*"*50)
 
     except Exception as e:
